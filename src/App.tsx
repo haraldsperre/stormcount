@@ -1,4 +1,4 @@
-import React, {useState, useEffect, useRef, useCallback} from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Zap, Droplet, Heart, Flame, AlertCircle, Swords, Hash, Eye, EyeOff, Gamepad2, Trophy, Coins } from 'lucide-react';
 
 // --- Type Definitions ---
@@ -40,66 +40,75 @@ export default function App() {
 
   // --- UI & Animation State ---
   const [modalState, setModalState] = useState<ModalState>('none');
+
+  // Wake Lock State
   const [isWakeLockActive, setIsWakeLockActive] = useState<boolean>(false);
+  const wakeLockRef = useRef<any>(null);
 
   // Ral Animation State
   const [flipData, setFlipData] = useState<FlipData>(null);
   const [flipPhase, setFlipPhase] = useState<'flipping' | 'result' | 'life'>('flipping');
   const [flipColorToggle, setFlipColorToggle] = useState(false);
 
-  const wakeLockRef = useRef<any>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
 
-  // --- Screen Wake Lock Logic (Updated for Mobile Interactions) ---
-  const requestWakeLock = useCallback(async () => {
-    // Hvis vi allerede har den, ikke spør igjen
-    if (isWakeLockActive || !('wakeLock' in navigator)) return;
-
-    try {
-      wakeLockRef.current = await navigator.wakeLock.request('screen');
-      setIsWakeLockActive(true);
-
-      // Lytt etter når systemet tar låsen fra oss (f.eks batterisparing eller bytte av app)
-      wakeLockRef.current.addEventListener('release', () => {
-        setIsWakeLockActive(false);
-      });
-      console.log('Wake Lock aktivert!');
-    } catch (err: any) {
-      console.error(`Wake Lock feilet: ${err.name}, ${err.message}`);
-      setIsWakeLockActive(false);
-    }
-  }, [isWakeLockActive]);
-
+  // --- Fiks for Screen Wake Lock API ---
   useEffect(() => {
-    // Sett opp en global lytter for det aller første klikket på skjermen
-    const handleFirstInteraction = () => {
-      requestWakeLock();
-      // Fjern lytterne med en gang vi har fått interaksjonen, så vi ikke spammer APIet
-      document.removeEventListener('pointerdown', handleFirstInteraction);
-      document.removeEventListener('keydown', handleFirstInteraction);
+    let isMounted = true;
+
+    const requestWakeLock = async () => {
+      // Hvis APIet ikke finnes, eller vi allerede har en lås, avbryt.
+      if (!('wakeLock' in navigator) || wakeLockRef.current !== null) {
+        return;
+      }
+
+      try {
+        const wakeLock = await navigator.wakeLock.request('screen');
+        wakeLockRef.current = wakeLock;
+
+        if (isMounted) setIsWakeLockActive(true);
+        console.log('Wake Lock Vellykket Aktivert!');
+
+        // Lytter for når OS-et tar låsen fra oss
+        wakeLock.addEventListener('release', () => {
+          console.log('Wake Lock Sluppet av systemet.');
+          wakeLockRef.current = null;
+          if (isMounted) setIsWakeLockActive(false);
+        });
+      } catch (err: any) {
+        console.warn(`Kunne ikke aktivere Wake Lock: ${err.name}, ${err.message}`);
+        if (isMounted) setIsWakeLockActive(false);
+      }
     };
 
-    document.addEventListener('pointerdown', handleFirstInteraction);
-    document.addEventListener('keydown', handleFirstInteraction);
-
-    // Gjenopprett låsen hvis brukeren har vært ute av appen og kommer tilbake
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && !isWakeLockActive) {
+    // Felles funksjon for å prøve å skaffe låsen ved interaksjon
+    const handleInteraction = () => {
+      if (wakeLockRef.current === null) {
         requestWakeLock();
       }
     };
 
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && wakeLockRef.current === null) {
+        requestWakeLock();
+      }
+    };
+
+    document.addEventListener('pointerdown', handleInteraction);
+    document.addEventListener('keydown', handleInteraction);
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
-      document.removeEventListener('pointerdown', handleFirstInteraction);
-      document.removeEventListener('keydown', handleFirstInteraction);
+      isMounted = false;
+      document.removeEventListener('pointerdown', handleInteraction);
+      document.removeEventListener('keydown', handleInteraction);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       if (wakeLockRef.current !== null) {
         wakeLockRef.current.release();
+        wakeLockRef.current = null;
       }
     };
-  }, [requestWakeLock, isWakeLockActive]);
+  }, []);
 
   // Auto-scroll logs
   useEffect(() => {
@@ -123,7 +132,6 @@ export default function App() {
       clearInterval(flipInterval);
       setFlipPhase('result');
 
-      // Oppdater selve game-staten i bakgrunnen
       if (flipData.won) {
         addLog(`Cast Inst/Sorc: Ral flip VANT (Safe)`);
       } else {
@@ -132,12 +140,9 @@ export default function App() {
       }
     }, 600);
 
-    // Fase 3 & 4: Oppdater liv (hvis tap) og lukk overlay
     if (flipData.won) {
-      // Hvis vi vant, vis "VANT!" en liten stund og lukk fort for å bevare momentum
       closeTimer = setTimeout(() => setFlipData(null), 1200);
     } else {
-      // Hvis vi tapte, vis "TAPT!", gå deretter til liv-oppdatering før vi lukker
       lifeTimer = setTimeout(() => setFlipPhase('life'), 1400);
       closeTimer = setTimeout(() => setFlipData(null), 3000);
     }
@@ -163,7 +168,6 @@ export default function App() {
     setStormIS(prev => prev + 1);
 
     if (ralActive) {
-      // Start myntkast-sekvensen
       const won = Math.random() >= 0.5;
       setFlipPhase('flipping');
       setFlipData({ won, oldLife: life });
@@ -468,12 +472,10 @@ export default function App() {
                     <div className="flex flex-col items-center justify-center mt-4">
                       <div className="text-red-500 text-2xl font-bold mb-6 uppercase tracking-widest opacity-80">Ral Damage</div>
                       <div className="flex items-center gap-8 text-8xl font-black">
-                        {/* Gammel life total med rød strek over */}
                         <div className="relative text-gray-500 scale-90">
                           {flipData.oldLife}
                           <div className="absolute top-1/2 left-[-10%] right-[-10%] h-3 bg-red-600 -rotate-12 rounded-full shadow-[0_0_10px_rgba(220,38,38,0.8)]"></div>
                         </div>
-                        {/* Ny life total */}
                         <div className="text-red-500 animate-pulse scale-110">
                           {flipData.oldLife - 1}
                         </div>
