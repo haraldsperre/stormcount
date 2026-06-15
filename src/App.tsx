@@ -86,8 +86,8 @@ export default function App() {
   useEffect(() => {
     if (!flipData) return;
 
-    let lifeTimer: NodeJS.Timeout;
-    let closeTimer: NodeJS.Timeout;
+    let lifeTimer: ReturnType<typeof setTimeout>;
+    let closeTimer: ReturnType<typeof setTimeout>;
 
     // Fase 1: Kjapp blinking mellom farger
     const flipInterval = setInterval(() => {
