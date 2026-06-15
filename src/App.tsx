@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, {useState, useEffect, useRef, useCallback} from 'react';
 import { Zap, Droplet, Heart, Flame, AlertCircle, Swords, Hash, Eye, EyeOff, Gamepad2, Trophy, Coins } from 'lucide-react';
 
 // --- Type Definitions ---
@@ -50,32 +50,56 @@ export default function App() {
   const wakeLockRef = useRef<any>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
 
-  // --- Screen Wake Lock Logic ---
-  useEffect(() => {
-    const requestWakeLock = async () => {
-      try {
-        if ('wakeLock' in navigator) {
-          wakeLockRef.current = await navigator.wakeLock.request('screen');
-          setIsWakeLockActive(true);
-          wakeLockRef.current.addEventListener('release', () => setIsWakeLockActive(false));
-        }
-      } catch (err: any) {
-        console.error(`${err.name}, ${err.message}`);
+  // --- Screen Wake Lock Logic (Updated for Mobile Interactions) ---
+  const requestWakeLock = useCallback(async () => {
+    // Hvis vi allerede har den, ikke spør igjen
+    if (isWakeLockActive || !('wakeLock' in navigator)) return;
+
+    try {
+      wakeLockRef.current = await navigator.wakeLock.request('screen');
+      setIsWakeLockActive(true);
+
+      // Lytt etter når systemet tar låsen fra oss (f.eks batterisparing eller bytte av app)
+      wakeLockRef.current.addEventListener('release', () => {
         setIsWakeLockActive(false);
+      });
+      console.log('Wake Lock aktivert!');
+    } catch (err: any) {
+      console.error(`Wake Lock feilet: ${err.name}, ${err.message}`);
+      setIsWakeLockActive(false);
+    }
+  }, [isWakeLockActive]);
+
+  useEffect(() => {
+    // Sett opp en global lytter for det aller første klikket på skjermen
+    const handleFirstInteraction = () => {
+      requestWakeLock();
+      // Fjern lytterne med en gang vi har fått interaksjonen, så vi ikke spammer APIet
+      document.removeEventListener('pointerdown', handleFirstInteraction);
+      document.removeEventListener('keydown', handleFirstInteraction);
+    };
+
+    document.addEventListener('pointerdown', handleFirstInteraction);
+    document.addEventListener('keydown', handleFirstInteraction);
+
+    // Gjenopprett låsen hvis brukeren har vært ute av appen og kommer tilbake
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && !isWakeLockActive) {
+        requestWakeLock();
       }
     };
 
-    requestWakeLock();
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') requestWakeLock();
-    };
-
     document.addEventListener('visibilitychange', handleVisibilityChange);
+
     return () => {
+      document.removeEventListener('pointerdown', handleFirstInteraction);
+      document.removeEventListener('keydown', handleFirstInteraction);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-      if (wakeLockRef.current !== null) wakeLockRef.current.release();
+      if (wakeLockRef.current !== null) {
+        wakeLockRef.current.release();
+      }
     };
-  }, []);
+  }, [requestWakeLock, isWakeLockActive]);
 
   // Auto-scroll logs
   useEffect(() => {
@@ -292,7 +316,7 @@ export default function App() {
           </div>
 
           {/* Red Mana */}
-          <div className="bg-gradient-to-br from-red-900/40 to-red-950 p-4 rounded-2xl border border-red-900/50 shadow-lg">
+          <div className="bg-linear-to-br from-red-900/40 to-red-950 p-4 rounded-2xl border border-red-900/50 shadow-lg">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-red-400 font-bold flex items-center gap-1.5 uppercase tracking-wider text-xs">
                 <Droplet size={16} /> Rød Mana
@@ -314,7 +338,7 @@ export default function App() {
             <ControlButton onClick={handleCastIS} className="flex flex-col items-center justify-center bg-blue-900/30 border border-blue-800/50 py-5 hover:bg-blue-900/50 relative overflow-hidden">
               <span className="text-xs text-blue-300 mb-1 font-semibold uppercase tracking-wider z-10">Inst/Sorc</span>
               <span className="text-4xl font-black text-blue-400 z-10">{stormIS}</span>
-              <div className="absolute inset-0 bg-gradient-to-t from-blue-900/20 to-transparent z-0 pointer-events-none"></div>
+              <div className="absolute inset-0 bg-linear-to-t from-blue-900/20 to-transparent z-0 pointer-events-none"></div>
             </ControlButton>
 
             <ControlButton onClick={handleCastOther} className="flex flex-col items-center justify-center bg-gray-800 border border-gray-700 py-5 hover:bg-gray-700">
@@ -377,7 +401,7 @@ export default function App() {
 
           {/* Modals */}
           {modalState !== 'none' && (
-              <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[150] p-4">
+              <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-150 p-4">
                 <div className="bg-gray-900 border border-gray-700 p-6 rounded-2xl shadow-2xl max-w-sm w-full">
                   {/* Game Modal */}
                   {modalState === 'game' && (
@@ -407,7 +431,7 @@ export default function App() {
                   {/* Tournament Modal */}
                   {modalState === 'tournament' && (
                       <>
-                        <h3 className="text-xl font-bold text-white mb-2 flex items-center gap-2 text-red-500"><Trophy size={20}/> Avslutt Turnering</h3>
+                        <h3 className="text-xl font-bold text-white mb-2 flex items-center gap-2"><Trophy size={20}/> Avslutt Turnering</h3>
                         <p className="text-gray-400 mb-6 text-sm">Dette sletter all turneringshistorikk og nullstiller absolutt alt tilbake til Runde 1.</p>
                         <div className="flex gap-3">
                           <button onClick={() => setModalState('none')} className="flex-1 py-3 bg-gray-800 hover:bg-gray-700 text-white rounded-xl font-semibold transition-colors border border-gray-700">Avbryt</button>
@@ -425,7 +449,7 @@ export default function App() {
 
           {/* Ral Flip Overlay Animation */}
           {flipData && (
-              <div className="fixed inset-0 bg-black/95 backdrop-blur-md flex flex-col items-center justify-center z-[100] transition-opacity duration-300">
+              <div className="fixed inset-0 bg-black/95 backdrop-blur-md flex flex-col items-center justify-center z-100 transition-opacity duration-300">
                 <Coins size={48} className={`mb-6 ${flipPhase === 'flipping' ? 'animate-bounce text-yellow-500' : 'opacity-20 text-gray-500'}`} />
 
                 {flipPhase === 'flipping' && (
